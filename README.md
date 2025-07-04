@@ -41,8 +41,8 @@ cmake -G Ninja .. -DCOMPILE_AS_PYMODULE=OFF -DEBUG_MODE=ON
 ```
 
 ## 4.补充
-该项目已完成：
+- 该项目已完成：
 1. kernel naive express -> MLIR(affine/memref/...)
 2. nvvm/rocdl + mlir-llvm -> hsaco/cubin
-未完成：
+- 未完成：
 1. optimize
