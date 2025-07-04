@@ -1,0 +1,7 @@
+#ifndef __CONFIG_H__
+#define __CONFIG_H__
+#define USER_PTXAS_PATH                 "${USER_PTXAS_PATH}"
+#define USER_LLD_PATH                   "${USER_LLD_PATH}"
+#define PTX_DUMP_PATH                   "${PTX_DUMP_PATH}"
+#define GCN_DUMP_PATH                   "${GCN_DUMP_PATH}"
+#endif // __CONFIG_H__
