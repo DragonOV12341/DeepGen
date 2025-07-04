@@ -35,7 +35,7 @@ set(LLVM_INSTALL_DIR "/home/xiebaokang/software/install/rocm-llvm-install")
 # 当前在项目目录下
 mkdir build & cd build
 
-cmake -G Ninja .. -DCOMPILE_AS_PYMODULE=OFF -DEBUG_MODE=ON
+cmake .. -DCOMPILE_AS_PYMODULE=OFF -DEBUG_MODE=ON
 # DCOMPILE_AS_PYMODULE(ON)：绑定python（DeepGen/src/main.cc）
 # DCOMPILE_AS_PYMODULE(OFF)：C++测试（DeepGen/src/test.cc）
 ```
