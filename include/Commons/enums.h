@@ -33,5 +33,22 @@ enum class ArgType {
   INPUT = 1,
 };
 
+enum class ElementWiseMode {
+  Exp = 0,
+  Exp2 = 1,
+};
+
+enum class ReduceMode {
+  Sum = 0,
+  Max = 1,
+};
+
+enum class BinaryMode {
+  Add = 0,
+  Sub = 1,
+  Mul = 2,
+  Div = 3,
+};
+
 }
 #endif

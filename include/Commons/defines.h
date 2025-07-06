@@ -41,7 +41,6 @@ namespace DeepGen {
 #define KERNEL_ELEMENTWISE    "Elementwise"
 #define KERNEL_BINARY         "Binary"
 #define KERNEL_REDUCE         "Reduce"
-#define KERNEL_BROADCAST      "Broadcast"
 
 // hong
 #define BUF_ALIGN_16B        16

@@ -29,8 +29,8 @@ struct KernelInfo {
 template <typename T>
 struct Operator {
   template <typename... Args>
-  static void buildKernel(mlir::ModuleOp module, int kernel_num, Args &&...args) {
-    T::buildKernel(module, kernel_num, std::forward<Args>(args)...);
+  static mlir::func::FuncOp buildKernel(mlir::ModuleOp module, int kernel_num, Args &&...args) {
+    return T::buildKernel(module, kernel_num, std::forward<Args>(args)...);
   }
 
   static std::vector<mlir::Value> getIndexes(const llvm::SmallVector<mlir::Value>& bs, const std::vector<mlir::Value>& ivs, bool istran) {
@@ -85,23 +85,24 @@ struct Operator {
     builder.setInsertionPointToStart(&entryBlock);
     return funcOp;
   }
-
-  static std::string getKernelName(){
-    return T::getKernelName();
-  }
 };
 
 // Dot kernel
 struct Dot : Operator<Dot> {
-  static std::string kernel_name;
-
   static bool verify(ArgTensor A, ArgTensor B, ArgTensor C);
 
-  static void buildKernel(mlir::ModuleOp module, int kernel_num, ArgTensor A, ArgTensor B, ArgTensor C);
+  static mlir::func::FuncOp buildKernel(mlir::ModuleOp module, int kernel_num, ArgTensor A, ArgTensor B, ArgTensor C);
+};
 
-  static std::string getKernelName(){
-    return kernel_name;
-  }
+// ElementWise kernel
+struct ElementWise : Operator<ElementWise> {
+  static std::map<ElementWiseMode, std::string> mode_name;
+
+  static mlir::Value createModeOp(mlir::OpBuilder b, mlir::Value operand, ElementWiseMode mode);
+
+  static bool verify(ArgTensor input, ArgTensor output);
+
+  static mlir::func::FuncOp buildKernel(mlir::ModuleOp module, int kernel_num, ArgTensor input, ArgTensor output, ElementWiseMode mode);
 };
 
 
@@ -120,19 +121,26 @@ class KernelGenerator {
     };
 
     void connect(mlir::ModuleOp module);
+
     mlir::ModuleOp loadMLIRFile(const std::string& filePath);
 
+    mlir::ModuleOp getModule() {
+      return this->module;
+    }
+
     template <typename OperatorType, typename... Args> 
-    mlir::ModuleOp create(Args &&...args) {
+    mlir::func::FuncOp create(Args &&...args) {
       int tmp_count;
       if constexpr (std::is_same_v<std::decay_t<OperatorType>, Dot>) {
         tmp_count = count[KERNEL_DOT];
         count[KERNEL_DOT]++;
+      } else if constexpr (std::is_same_v<std::decay_t<OperatorType>, ElementWise>) {
+        tmp_count = count[KERNEL_ELEMENTWISE];
+        count[KERNEL_ELEMENTWISE]++;
       } else {
         assert(false && "Unsupported create kernel.");
       }
-      OperatorType::buildKernel(this->module, tmp_count, std::forward<Args>(args)...);
-      return this->module;
+      return OperatorType::buildKernel(this->module, tmp_count, std::forward<Args>(args)...);
     }
 
   private:
@@ -142,6 +150,7 @@ class KernelGenerator {
 
     void initCount() {
       count.emplace(KERNEL_DOT, 0);
+      count.emplace(KERNEL_ELEMENTWISE, 0);
     }
 
     void initContext() {
