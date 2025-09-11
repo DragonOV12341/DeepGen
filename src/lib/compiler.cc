@@ -3,6 +3,13 @@
 
 namespace DeepGen {
 
+
+bool DGCompiler::mapping(mlir::ModuleOp& mod, Config tile_cfg) {
+  // mapping gpu
+  
+}
+
+
 bool DGCompiler::transform(mlir::ModuleOp& mod) {
   // dialect optimize
   mlir::PassManager pm(mod.getContext());
@@ -14,7 +21,7 @@ bool DGCompiler::transform(mlir::ModuleOp& mod) {
   pm.addNestedPass<func::FuncOp>(affine::createAffineLoopNormalizePass());
   pm.addPass(createAffineUnrollPass());
   pm.addPass(mlir::createCSEPass());  // 冗余消除
-  pm.addPass(mlir::createSymbolDCEPass());  // 死代码消除/化简
+  // pm.addPass(mlir::createSymbolDCEPass());  // 死代码消除/化简
   if (mlir::failed(pm.run(mod)))
     return false;
   return true;
@@ -34,7 +41,7 @@ bool DGCompiler::lowering(mlir::ModuleOp& mod) {
   pm1.addPass(mlir::createSCFToControlFlowPass());
   if (mlir::failed(pm1.run(mod)))
     return false;
-  
+  // LOG_DEBUG("===== llvm2: =======\n", mod);
   // == lowering to llvm  ==
   mlir::PassManager pm2(mod.getContext());
   // cf to llvm
@@ -42,21 +49,25 @@ bool DGCompiler::lowering(mlir::ModuleOp& mod) {
   cfOptions.indexBitwidth = INDEX_BIT_WIDTH;
   pm2.addPass(mlir::createConvertControlFlowToLLVMPass(cfOptions));
   // vector to llvm
-  pm2.addPass(createVectorToLLVMPass(INDEX_BIT_WIDTH));
-  // memref to llvm
-  FinalizeMemRefToLLVMConversionPassOptions memrefOptions;
-  memrefOptions.indexBitwidth = INDEX_BIT_WIDTH;
-  // memrefOptions.useAlignedAlloc = true;
-  pm2.addPass(mlir::createFinalizeMemRefToLLVMConversionPass(memrefOptions));
-  pm2.addPass(createGlobalShmSetZeroPass());
+  // pm2.addPass(createVectorToLLVMPass(INDEX_BIT_WIDTH));
+  // // nvgpu to nvvm
+  // pm2.addPass(mlir::createConvertNVGPUToNVVMPass());
+  // // memref to llvm
+  // FinalizeMemRefToLLVMConversionPassOptions memrefOptions;
+  // memrefOptions.indexBitwidth = INDEX_BIT_WIDTH;
+  // // memrefOptions.useAlignedAlloc = true;
+  // pm2.addPass(mlir::createFinalizeMemRefToLLVMConversionPass(memrefOptions));
+  // pm2.addPass(createGlobalShmSetZeroPass());
   // func to llvm
-  ConvertFuncToLLVMPassOptions funcOptions;
-  funcOptions.indexBitwidth = INDEX_BIT_WIDTH;
-  funcOptions.useBarePtrCallConv = true;
-  pm2.addPass(mlir::createConvertFuncToLLVMPass(funcOptions));
-  pm2.addPass(createLLVMFuncOpAddGPUAttrPass(target));  // llvmfuncOp add nvvm/rocdl.kernel or nvvm.maxnid
+  // ConvertFuncToLLVMPassOptions funcOptions;
+  // funcOptions.indexBitwidth = INDEX_BIT_WIDTH;
+  // funcOptions.useBarePtrCallConv = true;
+  // pm2.addPass(mlir::createConvertFuncToLLVMPass(funcOptions));
+  // pm2.addPass(createLLVMFuncOpAddGPUAttrPass(target));  // llvmfuncOp add nvvm/rocdl.kernel or nvvm.maxnid
   // gpu to rocdl/nvvm
   pm2.addPass(createGPUToROCDLOrNVVMPass(this->target, INDEX_BIT_WIDTH));
+  // nvvm to llvm
+  pm2.addPass(mlir::createConvertNVVMToLLVMPass());
   // math to llvm
   pm2.addPass(mlir::createConvertMathToLLVMPass());  // ConvertMathToLLVMPassOptions options.approximateLog1p 精度换性能(true)
   // arith to llvm
@@ -85,8 +96,8 @@ std::string DGCompiler::translate(mlir::ModuleOp& mod) {
     return generateAmdgcnAndHsacoFromLLIRFile(llvmIR, "gfx" + arch, gfx_triple, gfx_features);
   } else {
     std::string llvmIR = std::move(translateMLIRToLLVMIR(mod, target));
-    // llvm::outs() << " =========== after LLVM IR ============\n";
-    // llvm::outs() << llvmIR << "\n";
+    llvm::outs() << " =========== after LLVM IR ============\n";
+    llvm::outs() << llvmIR << "\n";
     // const int capability = CUDA_CAP;
     const int version = 83;
     auto paths = generatePTXAndCubinFromLLIRFile(llvmIR, std::stoi(arch), version);

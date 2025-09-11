@@ -20,6 +20,18 @@ enum class MemorySpace {
   inplace = 6,
 };
 
+enum class Layout {
+  row = 0,
+  col = 1,
+};
+
+enum class SwizzleMode {
+  SWIZZLE_128B = 1,
+  SWIZZLE_64B = 2,
+  SWIZZLE_32B = 3,
+  SWIZZLE_NONE = 0,
+};
+
 enum class DType {
   FLOAT16 = 2,
   FLOAT32 = 4,
@@ -29,8 +41,14 @@ enum class DType {
 };
 
 enum class ArgType {
-  OUTPUT = 0,
-  INPUT = 1,
+  Output = 0,
+  Input = 1,
+};
+
+enum class TensorType {
+  Normal = 0,
+  Scalar = 1,
+  Trilu = 2
 };
 
 enum class ElementWiseMode {

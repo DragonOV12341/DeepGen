@@ -32,6 +32,7 @@
 #include "mlir/IR/Block.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/TypeUtilities.h"
+#include "mlir/IR/IntegerSet.h"
 // other dialect
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -63,6 +64,9 @@
 
 namespace DeepGen {
 
+// ==== mpping / optimize autotune space args
+using Config = std::map<std::string, int64_t>;
+
 #ifdef KCG_DEBUG
 #define LOG_DEBUG(message,mod)  \
 {\
@@ -85,7 +89,7 @@ inline mlir::Type getDType(mlir::OpBuilder builder, DType dtype) {
   return nullptr;
 }
 
-inline mlir::MemRefType getMemType(std::vector<int64_t> shape, mlir::Type arith_type, MemorySpace mem_space) {
+inline mlir::MemRefType getMemType(const std::vector<int64_t>& shape, mlir::Type arith_type, MemorySpace mem_space) {
   // create a mem type
   int ms = static_cast<int>(mem_space);
   return mlir::MemRefType::get(llvm::ArrayRef<int64_t>(shape), arith_type, {}, ms);

@@ -10,10 +10,12 @@ namespace DeepGen {
 struct ArgTensor {
   // tensor data struct
   std::vector<int64_t> shape;
+  int32_t rank;
   DeepGen::DType dtype;
   DeepGen::ArgType argtype;
-  int32_t rank;
   bool istran;
+  DeepGen::TensorType ttype = DeepGen::TensorType::Normal;
+  float num;
 };
 
 struct KernelInfo {
@@ -55,7 +57,7 @@ struct Operator {
       auto mem_type = getMemType(arg.shape, getDType(b, arg.dtype), MemorySpace::global);
       arg_type.push_back(mem_type);
       istrans.push_back(arg.istran);
-      if (arg.argtype == ArgType::OUTPUT) output_num++;
+      if (arg.argtype == ArgType::Output) output_num++;
     }
     KernelInfo info = {kn, kt, arg_type, istrans, output_num};
     return info;
@@ -105,6 +107,24 @@ struct ElementWise : Operator<ElementWise> {
   static mlir::func::FuncOp buildKernel(mlir::ModuleOp module, int kernel_num, ArgTensor input, ArgTensor output, ElementWiseMode mode);
 };
 
+// Binary kernel
+struct Binary : Operator<Binary> {
+  static std::map<ElementWiseMode, std::string> mode_name;
+
+  static bool verify(ArgTensor A, ArgTensor B, ArgTensor C);
+
+  static mlir::func::FuncOp buildKernel(mlir::ModuleOp module, int kernel_num, ArgTensor A, ArgTensor B, ArgTensor C, BinaryMode mode);
+};
+
+// Reduce kernel
+struct Reduce : Operator<Reduce> {
+  static std::map<ElementWiseMode, std::string> mode_name;
+
+  static bool verify(ArgTensor input, ArgTensor output);
+
+  static mlir::func::FuncOp buildKernel(mlir::ModuleOp module, int kernel_num, ArgTensor input, ArgTensor output, ReduceMode mode);
+};
+
 
 // KernelGenerator class
 class KernelGenerator {
@@ -122,7 +142,7 @@ class KernelGenerator {
 
     void connect(mlir::ModuleOp module);
 
-    mlir::ModuleOp loadMLIRFile(const std::string& filePath);
+    std::string loadMLIRFile(const std::string& filePath, bool isLLVM=true);
 
     mlir::ModuleOp getModule() {
       return this->module;
@@ -164,6 +184,8 @@ class KernelGenerator {
       context->getOrLoadDialect<mlir::math::MathDialect>();
       context->getOrLoadDialect<mlir::cf::ControlFlowDialect>();
       context->getOrLoadDialect<mlir::LLVM::LLVMDialect>();
+      context->getOrLoadDialect<mlir::nvgpu::NVGPUDialect>();
+      context->getOrLoadDialect<mlir::NVVM::NVVMDialect>();
     }
 };
 

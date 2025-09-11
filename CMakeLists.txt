@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.15.0)
 project(KernelCodeGen LANGUAGES CXX C)
 set(CMAKE_CXX_STANDARD 17 CACHE STRING "C++ standard to conform to")
 
-set(LLVM_INSTALL_DIR "/home/xiebaokang/software/install/rocm-llvm-install")
+set(LLVM_INSTALL_DIR "/home/xiebaokang/software/install/llvm-install")
 
 set(USER_PTXAS_PATH "/usr/local/cuda-12.4/bin/ptxas") 
 set(USER_LLD_PATH "/opt/dtk/llvm/bin/ld.lld")

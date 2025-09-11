@@ -20,6 +20,7 @@
 namespace DeepGen {
   
 class DGCompiler {
+  
   public:
     DGCompiler(Target target, const std::string& arch) : target(target), arch(arch) {}
     DGCompiler(const DGCompiler& other) : DGCompiler(other.target, other.arch) {}
@@ -35,9 +36,9 @@ class DGCompiler {
     std::string arch;
   
   public:
-    bool fuseing(mlir::ModuleOp& mod);  // forop fuse
-    bool mapping(mlir::ModuleOp& mod);  // mapping forop to parallelop
-    bool optimize(mlir::ModuleOp& mod);  // kernel optimization passes set
+    bool fuseing(mlir::ModuleOp& mod/*, graph */);  // forop fuse
+    bool mapping(mlir::ModuleOp& mod, Config tile_cfg);  // mapping forop to parallelop
+    bool optimize(mlir::ModuleOp& mod, Config opt_cfg);  // kernel optimization passes set
 
     bool transform(mlir::ModuleOp& mod);
     bool lowering(mlir::ModuleOp& mod);

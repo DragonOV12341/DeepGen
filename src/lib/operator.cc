@@ -1,4 +1,5 @@
 #include "operator.h"
+#include "compiler.h"
 
 namespace DeepGen {
 
@@ -97,9 +98,13 @@ bool ElementWise::verify(ArgTensor input, ArgTensor output) {
     if (input.istran && input.shape[rank-1] == output.shape[rank-2] && // input-row == output-row
       input.shape[rank-2] == output.shape[rank-1]) { // input-col == output-col
       return true;
-    } else if (!input.istran && input.shape[rank-2] == output.shape[rank-2] &&  // input-row == output-row
-      input.shape[rank-1] == output.shape[rank-1]) // input-col == output-col
+    }
+    if (!input.istran && input.shape[rank-2] == output.shape[rank-2] &&  // input-row == output-row
+      input.shape[rank-1] == output.shape[rank-1]) {// input-col == output-col
       return true;
+    }
+    llvm::errs() << "The shape of Tensor is ont equal.\n";
+    return false;
   }
   llvm::errs() << "The dtype/rank/row/col of Tensor is ont equal.\n";
   return false;
@@ -159,10 +164,84 @@ mlir::func::FuncOp ElementWise::buildKernel(mlir::ModuleOp module, int kernel_nu
 }
 // =========================================================================================
 
-mlir::ModuleOp KernelGenerator::loadMLIRFile(const std::string& filePath) {
+// ==================================== binary kernel  =====================================
+bool Binary::verify(ArgTensor A, ArgTensor B, ArgTensor C) {
+  // verify element wise kernel
+  if (A.dtype == B.dtype && A.dtype == C.dtype && A.ttype == TensorType::Normal) {
+    if (A.rank >= 2 && A.rank == C.rank) {
+      // verify AC
+      int32_t ra = A.rank, rb = B.rank, rc = C.rank;
+      if (A.istran && (A.shape[ra-1] != C.shape[rc-1] || A.shape[ra-2] != C.shape[rc-2])) {
+        llvm::errs() << "The Shape of Tensor(A/C) is ont equal.\n";
+        return false;
+      } else if (!A.istran && (A.shape[ra-1] != C.shape[rc-2] || A.shape[ra-2] != C.shape[rc-1])) {
+        llvm::errs() << "The Shape of Tensor(A/C) is ont equal.\n";
+        return false;
+      }
+      // no broadcast
+      if (B.ttype == TensorType::Normal && A.rank == B.rank) {
+        if ((A.istran && B.istran || !A.istran && !B.istran) && 
+        A.shape[ra-1] == B.shape[rb-1] && A.shape[ra-2] == B.shape[rb-2]) {
+          return true;
+        }
+        if ((!A.istran && B.istran || A.istran && !B.istran) && 
+        A.shape[ra-2] == B.shape[rb-1] && A.shape[ra-2] == B.shape[rb-1]) {
+          return true;
+        }
+        llvm::errs() << "The Shape of Tensor(A/B) is ont equal.\n";
+        return false;
+      }
+      if (!A.istran && !B.istran) {
+        // broadcast
+        if (B.ttype == TensorType::Normal && A.rank > B.rank) {
+          
+        }
+      }
+      llvm::errs() << "Transposition is not possible without broadcasting.\n";
+      return false;
+    }
+    llvm::errs() << "The rank of Tensor is ont equal and rank of A must be >= 2.\n";
+    return false;
+  }
+  llvm::errs() << "The dtype of Tensor is ont equal, A tensor type must be normal and rank of A must be >= 2.\n";
+  return false;
+}
+
+// =========================================================================================
+
+// ==================================== reduce kernel  =====================================
+bool Reduce::verify(ArgTensor input, ArgTensor output) {
+  // verify reduce kernel
+  if (input.rank - output.rank == 1 && input.dtype == output.dtype) {
+    int32_t ri = input.rank, ro = output.rank;
+    if (input.istran && input.shape[ri-1] == output.shape[ro-1]) {
+      return true;
+    }
+    if (!input.istran && input.shape[ri-2] == output.shape[ro-1]) {
+      return true;
+    }
+    llvm::errs() << "The shape of Tensor is ont equal.\n";
+    return false;
+  }
+  llvm::errs() << "The dtype of Tensor is ont equal.\n";
+  return false;
+}
+// =========================================================================================
+
+std::string KernelGenerator::loadMLIRFile(const std::string& filePath, bool isLLVM) {
   // read mlir file
+  
+  DGCompiler compiler(Target::CUDA, "90");
   mlir::OwningOpRef<mlir::ModuleOp> mod = parseSourceFile<mlir::ModuleOp>(filePath, context.get());
-  return *mod;
+  mlir::ModuleOp module = *mod;
+  if(!isLLVM){
+    compiler.transform(module);
+    // LOG_DEBUG("===== llvm1: =======\n", module);
+    compiler.lowering(module);
+  }
+  // LOG_DEBUG("===== llvm3: =======\n", module);
+  auto path = compiler.translate(module);
+  return path;
 }
 
 }

@@ -4,6 +4,7 @@
 namespace DeepGen {
 namespace Analyzer {
 
+
 int getThreadsPerCTA(mlir::ModuleOp module) {
   // 根据func属性获取cta的thread个数
   int threadNum = 1;
@@ -18,6 +19,18 @@ int getThreadsPerCTA(mlir::ModuleOp module) {
     }
   }
   return threadNum;
+}
+
+llvm::SmallVector<mlir::Operation*> 
+getOperationByAttr(mlir::Operation *outer_op, const std::string& key, const std::string& val) {
+  // 根据属性获取operation
+  llvm::SmallVector<mlir::Operation*> ops;
+  outer_op->walk<mlir::WalkOrder::PreOrder>([&](mlir::Operation *inner_op) {
+    if (getOpAttr<std::string>(inner_op, key) == val) {
+      ops.push_back(inner_op);
+    }
+  });
+  return ops;
 }
 
 }

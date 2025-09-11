@@ -42,9 +42,10 @@ std::string translateLLVMIRToPTX(llvm::Module &module, int cc, int version) {
   int ptxMinor = maxPTX % 10;
   // create
   std::string triple = "nvptx64-nvidia-cuda";
-  std::string proc = "sm_" + std::to_string(maxCC);
+  std::string proc = sm;
   std::string layout = "";
   std::string features = "";
+  
   // std::string features = "+ptx" + std::to_string(maxPTX);
   for (llvm::Function &f : module.functions()) {
     if (!f.hasFnAttribute(llvm::Attribute::NoInline))
@@ -56,6 +57,7 @@ std::string translateLLVMIRToPTX(llvm::Module &module, int cc, int version) {
   pm.add(llvm::createAlwaysInlinerLegacyPass());
   pm.add(llvm::createVerifierPass());
   pm.run(module);
+  
   // module.print(llvm::outs(), nullptr);
 
   // create machine

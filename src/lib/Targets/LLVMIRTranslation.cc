@@ -30,13 +30,14 @@ static std::function<Error(Module *)> makeOptimizingPipeline(unsigned optLevel, 
     std::optional<OptimizationLevel> ol = mapToLevel(optLevel, sizeLevel);
     if (!ol) {
       return make_error<StringError>(
-        formatv("invalid optimization/size level {0}/{1}", optLevel, sizeLevel).str(),
-        inconvertibleErrorCode());
+          formatv("invalid optimization/size level {0}/{1}", optLevel, sizeLevel).str(),
+          inconvertibleErrorCode());
     }
     LoopAnalysisManager lam;
     FunctionAnalysisManager fam;
     CGSCCAnalysisManager cgam;
     ModuleAnalysisManager mam;
+
     PipelineTuningOptions tuningOptions;
     tuningOptions.LoopUnrolling = true;
     tuningOptions.LoopInterleaving = true;
@@ -44,34 +45,38 @@ static std::function<Error(Module *)> makeOptimizingPipeline(unsigned optLevel, 
     tuningOptions.SLPVectorization = true;
 
     PassBuilder pb(targetMachine, tuningOptions);
+
     std::string pluginFile = getenv("AMDGCN_INSTRUMENTATION_LIB");
     if (!pluginFile.empty()) {
-      llvm::errs() << "Adding AMDGCN instrumentation pass to pipeline" << "\n";
-      auto passPlugin = llvm::PassPlugin::Load(pluginFile);
-      if (!passPlugin) {
-        llvm::Error Err = passPlugin.takeError();
-        llvm::errs() << "ERROR: " << Err << "\n";
-        consumeError(std::move(Err));
-      }
-      passPlugin->registerPassBuilderCallbacks(pb);
+        llvm::errs() << "Adding AMDGCN instrumentation pass to pipeline" << "\n";
+        auto passPlugin = llvm::PassPlugin::Load(pluginFile);
+        if (!passPlugin) {
+                llvm::Error Err = passPlugin.takeError();
+                llvm::errs() << "ERROR: " << Err << "\n";
+                consumeError(std::move(Err));
+        }
+        passPlugin->registerPassBuilderCallbacks(pb);
     }
+
     pb.registerModuleAnalyses(mam);
     pb.registerCGSCCAnalyses(cgam);
     pb.registerFunctionAnalyses(fam);
     pb.registerLoopAnalyses(lam);
     pb.crossRegisterProxies(lam, fam, cgam, mam);
+
     ModulePassManager mpm;
     pb.registerVectorizerStartEPCallback(
-      [&](llvm::FunctionPassManager &fpm, llvm::OptimizationLevel level) {
-        fpm.addPass(InstCombinePass());
-      });
+        [&](llvm::FunctionPassManager &fpm, llvm::OptimizationLevel level) {
+          fpm.addPass(InstCombinePass());
+        });
     mpm.addPass(pb.buildPerModuleDefaultPipeline(*ol));
     mpm.run(*m, mam);
     return Error::success();
   };
 }
-
 }
+
+
 
 
 using namespace llvm;
@@ -262,6 +267,7 @@ std::string translateMLIRToLLVMIR(mlir::ModuleOp module, Target target, const in
   registry.insert<mlir::DLTIDialect, mlir::func::FuncDialect>();
   registerAllToLLVMIRTranslations(registry);
   module.getContext()->appendDialectRegistry(registry);
+  llvm::outs() << module << "\n";
 
   llvm::DenseMap<llvm::StringRef, NVVMMetadata> nvvmMetadata;
   extractNVVMMetadata(module, &nvvmMetadata);
@@ -273,7 +279,7 @@ std::string translateMLIRToLLVMIR(mlir::ModuleOp module, Target target, const in
     llvm::errs() << "Failed to emit LLVM IR\n";
     return "";
   }
-  
+  // llvm::outs() << *llvmModule << "\n";
   auto externLibs = getExternLibs(module);
   for (auto &lib : externLibs) {
     if (linkExternLib(*llvmModule, lib.first, lib.second, target))
@@ -288,12 +294,12 @@ std::string translateMLIRToLLVMIR(mlir::ModuleOp module, Target target, const in
     }
   }
   
-  auto optPipeline = makeOptimizingPipeline(/*optLevel=*/3, /*sizeLevel=*/0, /*targetMachine=*/nullptr);
-  if (auto err = optPipeline(llvmModule.get())) {
-    llvm::errs() << "Failed to optimize LLVM IR " << err << "\n";
-    return "";
-  }  
-  std::string str;
+  // auto optPipeline = makeOptimizingPipeline(/*optLevel=*/3, /*sizeLevel=*/0, /*targetMachine=*/nullptr);
+  // if (auto err = optPipeline(llvmModule.get())) {
+  //   llvm::errs() << "Failed to optimize LLVM IR " << err << "\n";
+  //   return "";
+  // }  
+  std::string str{""};
   llvm::raw_string_ostream os(str);
   llvmModule->print(os, nullptr);
   os.flush();
