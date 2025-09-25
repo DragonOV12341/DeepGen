@@ -2,15 +2,19 @@ file(GLOB_RECURSE analysis_src ./Analysis/*.cc)
 file(GLOB_RECURSE conversion_src ./Conversion/*.cc)
 file(GLOB_RECURSE transforms_src ./Transforms/*.cc)
 file(GLOB_RECURSE targets_src ./Targets/*.cc)
+add_subdirectory(Dialect)
+add_mlir_library(
+    dg_runtime 
+    ${analysis_src}
+    ${conversion_src}
+    ${transforms_src}
+    ${targets_src}
+    compiler.cc
+    operator.cc
 
-add_library(dg_runtime 
-            ${analysis_src}
-            ${conversion_src}
-            ${transforms_src}
-            ${targets_src}
-            compiler.cc
-            operator.cc
-            )
+DEPENDS 
+    DeepgenInc
+)
 
 
 #target_compile_options(dg_runtime PRIVATE -frtti)

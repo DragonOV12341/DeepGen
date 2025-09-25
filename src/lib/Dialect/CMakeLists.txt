@@ -1,0 +1,3 @@
+
+add_subdirectory(Deepgen)
+add_subdirectory(DeepgenLow)

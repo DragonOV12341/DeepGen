@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.15.0)
 project(KernelCodeGen LANGUAGES CXX C)
 set(CMAKE_CXX_STANDARD 17 CACHE STRING "C++ standard to conform to")
 
-set(LLVM_INSTALL_DIR "/home/xiebaokang/software/install/llvm-install")
+set(LLVM_INSTALL_DIR "~/rocm-llvm-install")
 
 set(USER_PTXAS_PATH "/usr/local/cuda-12.4/bin/ptxas") 
 set(USER_LLD_PATH "/opt/dtk/llvm/bin/ld.lld")
@@ -24,6 +24,7 @@ option(COMPILE_AS_PYMODULE "Compile KernelCodeGen to DynamicLib or Exe" OFF)
 option(DEBUG_MODE "Enable debug log" ON)
 # close some warnings
 add_compile_options(
+  -fexceptions
   -Wno-unused-function
   -Wno-unused-variable
   -Wno-unused-result
@@ -72,11 +73,13 @@ add_definitions(${LLVM_DEFINITIONS})
 message("add-def:${LLVM_DEFINITIONS}")
 if(DEBUG_MODE)
   add_definitions(-DKCG_DEBUG)
+  add_compile_options(-g)
 endif()
-# add_compile_options(-g)
 
 SET(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/bin)
 SET(EXECUTABLE_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/bin)
 
+add_subdirectory(include)
 add_subdirectory(src/lib)
 add_subdirectory(src)
+add_subdirectory(_temptest)
