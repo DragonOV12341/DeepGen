@@ -23,12 +23,12 @@ def MemSyncScopeAttr : I32EnumAttr<
     let cppNamespace = "::mlir::deepgen";
 }
 
-def BlockDimAxisAttr : I32EnumAttr<
-    "BlockDimAxis", "",
+def DimAxisAttr : I32EnumAttr<
+    "Dimension", "",
     [
-        I32EnumAttrCase<"X", 0, "x">,
-        I32EnumAttrCase<"Y", 1, "y">,
-        I32EnumAttrCase<"Z", 2, "z">,
+        I32EnumAttrCase<"x", 0, "x">,
+        I32EnumAttrCase<"y", 1, "y">,
+        I32EnumAttrCase<"z", 2, "z">,
     ]> {
     let cppNamespace = "::mlir::deepgen";
 }

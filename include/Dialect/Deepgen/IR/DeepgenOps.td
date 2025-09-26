@@ -22,45 +22,92 @@ include "mlir/Interfaces/CallInterfaces.td" // CallOpInterface
 // Op Base
 //
 class Deepgen_Op<string mnemonic, list<Trait> traits = []> :
-    Op<Deepgen_Dialect, mnemonic, traits> {
+    Op<Deepgen_Dialect, mnemonic, !listconcat(traits, [])> {
 }
 
-def KernelOp : Deepgen_Op<"kernel",[
-    IsolatedFromAbove
+def KernelFuncOp : Deepgen_Op<"kernel_func",[
+  AffineScope, IsolatedFromAbove, OpAsmOpInterface, FunctionOpInterface, CallableOpInterface
 ]> {
     let summary = "定义KernelFunction ";
+
     let arguments = (ins 
-        I64ArrayAttr:$gridDim,
-        I64ArrayAttr:$blockDim,
-        Variadic<AnyType>:$arguments
+      SymbolNameAttr:$sym_name,
+      TypeAttrOf<FunctionType>:$function_type,
+      DenseI64ArrayAttr : $griddim,
+      DenseI64ArrayAttr : $blockdim,
+      OptionalAttr<StrAttr>:$sym_visibility,
+      OptionalAttr<DictArrayAttr>:$arg_attrs,
+      OptionalAttr<DictArrayAttr>:$res_attrs
     );
+    let regions = (region AnyRegion:$body);
 
-    // 内核的主体，一个包含指令的区域
-    let regions = (region SizedRegion<1>);  
-    
-    /** usage: 
-    // 顶层 Op，与 func.func 同级
-    deepgen.kernel @my_add_kernel(%arg0: memref<1024xf32>, %arg1: memref<1024xf32>, %arg2: memref<1024xf32>)
-        {gridDim = [32, 1, 1], blockDim = [32, 1, 1]} {
+    let builders = [OpBuilder<(ins
+      "StringRef":$name, "FunctionType":$type,
+      "DenseI64ArrayAttr" : $griddimAttr,
+      "DenseI64ArrayAttr" : $blockdimAttr,
+      CArg<"ArrayRef<NamedAttribute>", "{}">:$attrs,
+      CArg<"ArrayRef<DictionaryAttr>", "{}">:$argAttrs)
+    >];
+    let extraClassDeclaration = [{
+    //===------------------------------------------------------------------===//
+    // CallableOpInterface
+    //===------------------------------------------------------------------===//
 
-        // 内核的 body，这里可以放置你的计算指令
-        // 例如，使用 gpu.thread_id 来获取线程ID，进行并行计算
-        %x = deepgen.thread_id x
-        %val0 = memref.load %arg0[%x] : memref<1024xf32>
-        %val1 = memref.load %arg1[%x] : memref<1024xf32>
-        %sum = arith.addf %val0, %val1 : f32
-        memref.store %sum, %arg2[%x] : memref<1024xf32>
-        deepgen.return
+    /// Returns the region on the current operation that is callable. This may
+    /// return null in the case of an external callable object, e.g. an external
+    /// function.
+    ::mlir::Region *getCallableRegion() { return isExternal() ? nullptr : &getBody(); }
+
+    /// Returns the results types that the callable region produces when
+    /// executed.
+    ArrayRef<Type> getCallableResults() { return getFunctionType().getResults(); }
+
+    /// Returns the argument attributes for all callable region arguments or
+    /// null if there are none.
+    ::mlir::ArrayAttr getCallableArgAttrs() {
+      return getArgAttrs().value_or(nullptr);
     }
 
-    func.func @main() {
-        ...
+    /// Returns the result attributes for all callable region results or
+    /// null if there are none.
+    ::mlir::ArrayAttr getCallableResAttrs() {
+      return getResAttrs().value_or(nullptr);
     }
-    **/
+
+    //===------------------------------------------------------------------===//
+    // FunctionOpInterface Methods
+    //===------------------------------------------------------------------===//
+
+    /// Returns the argument types of this function.
+    ArrayRef<Type> getArgumentTypes() { return getFunctionType().getInputs(); }
+
+    /// Returns the result types of this function.
+    ArrayRef<Type> getResultTypes() { return getFunctionType().getResults(); }
+
+    //===------------------------------------------------------------------===//
+    // SymbolOpInterface Methods
+    //===------------------------------------------------------------------===//
+
+    bool isDeclaration() { return isExternal(); }
+
+    static LogicalResult verifyInvariants(KernelFuncOp op) {
+        // 验证 griddim 属性 (如果存在) 必须是长度为 3 的数组
+        if (op.getGriddim().size() != 3){
+          return op.emitOpError("griddim attribute must be an array of length 3");
+        }
+        // 验证 blockdim 属性 (如果存在) 必须是长度为 3 的数组
+        if (op.getBlockdim().size() != 3){
+          return op.emitOpError("blockdim attribute must be an array of length 3");
+        }
+      return success();
+    }
+  }];
+
+    let hasCustomAssemblyFormat = 1;
 }
 
-/*
-def ReturnOp : Deepgen_Op<"return", [Pure, HasParent<"KernelDefineOp">, /*MemRefsNormalizable, */ReturnLike, Terminator]> {
+
+def ReturnOp : Deepgen_Op<"return", [Pure, HasParent<"KernelFuncOp">, /*MemRefsNormalizable, */ReturnLike, Terminator]> {
   let summary = "Function return operation";
   let description = [{
     The `tt.return` operation represents a return operation within a function.
@@ -88,143 +135,157 @@ def ReturnOp : Deepgen_Op<"return", [Pure, HasParent<"KernelDefineOp">, /*MemRef
   let hasVerifier = 1;
 }
 
-def BlockIdOp : Deepgen_Op<"block_id", [
-    NoSideEffects,  // 这个操作没有副作用，因为它只是读取一个值
-    Pure,           // 它的结果只依赖于其输入（虽然这里没有输入，但其值是确定的）
-    IsolatedFromAbove  // 此op不能从parent区域之外获取ssa值。
-]> {
-  let summary = "Get the block ID for the current thread block.";
-  let description = [{
-    The `block_id` operation returns the ID of the current thread block
-    in the specified dimension (x, y, or z). The value returned is an index.
-  }];
-  
-  // 属性，用于指定维度
-  let attributes = (ins StringEnumAttr<"dimension", ["x", "y", "z"]>:$dimension);
-  
-  // 返回类型为 index
-  let results = (outs Index);
-  /** usage:
-  deepgen.kernel @mykernel(){gridDim = [32, 1, 1], blockDim = [32, 1, 1]} {
-    %blockIdX = deepgen.block_id x
-  }
-  **/
 
+class GPU_IndexOp<string mnemonic, list<Trait> traits = []> :
+    Deepgen_Op<mnemonic, !listconcat(traits, [
+        Pure,
+        DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>])>,
+    Arguments<(ins DimAxisAttr:$dimension,
+                   OptionalAttr<IndexAttr>:$upper_bound)>, Results<(outs Index)> {
+  let assemblyFormat = "$dimension (`upper_bound` $upper_bound^)? attr-dict";
+  let extraClassDefinition = [{
+    void $cppClass::getAsmResultNames(
+        llvm::function_ref<void(mlir::Value, mlir::StringRef)> setNameFn) {
+      auto dimStr = stringifyDimension(getDimensionAttr().getValue());
+      auto opName = getOperationName();
+      opName.consume_front("deepgen.");
+      SmallString<8> resultName({opName, dimStr});
+      setNameFn(getResult(),resultName);
+    }
+  }];
+  let builders = [
+    OpBuilder<(ins "::mlir::deepgen::Dimension":$dimension), [{
+      build($_builder, $_state, dimension, /*upperBound=*/nullptr);
+    }]>,
+    OpBuilder<(ins "::mlir::Type":$resultType, "::mlir::deepgen::Dimension":$dimension), [{
+      build($_builder, $_state, resultType, dimension, /*upperBound=*/nullptr);
+    }]>
+  ];
 }
 
-def ThreadIdOp : Deepgen_Op<"thread_id", [
-    NoSideEffects,  // 这个操作没有副作用，因为它只是读取一个值
-    Pure,           // 它的结果只依赖于其输入（虽然这里没有输入，但其值是确定的）
-    IsolatedFromAbove  // 此op不能从parent区域之外获取ssa值。
-]> {
-  let summary = "Get the thread ID for the current thread block.";
+def BlockIdOp : GPU_IndexOp<"blockId"> {
   let description = [{
-    The `thread_id` operation returns the ID of the current thread block
-    in the specified dimension (x, y, or z). The value returned is an index.
-  }];
-  
-  // 属性，用于指定维度
-  let attributes = ( StringEnumAttr<"dimension", ["x", "y", "z"]>:$dimension);
-  
-  // 返回类型为 index
-  let results = (outs Index);
-  /** usage:
-  deepgen.kernel @mykernel(){gridDim = [32, 1, 1], blockDim = [32, 1, 1]} {
-    %blockIdX = deepgen.thread_id x
-  }
-  **/
+    Returns the block id, i.e. the index of the current block within the grid
+    along the x, y, or z `dimension`.
 
+    Example:
+
+    ```mlir
+    %bIdY = deepgen.block_id y
+    ```
+
+    If `upper_bound` is set, or if one can be inferred from `known_grid_size`-type
+    annotations in context, executions where the block index in `dimension` would
+    be greater than or equal to that bound cause undefined behavior. `upper_bound`
+    takes priority over bounds inferrable from context.
+
+    There is an implicit upper bound of `kMaxDim` (currently uint32_t::max).
+  }];
+}
+
+def ThreadIdOp : GPU_IndexOp<"threadId"> {
+  let description = [{
+    Returns the thread id, i.e. the index of the current thread within the block
+    along the x, y, or z `dimension`.
+
+    Example:
+
+    ```mlir
+    %tIdX = deepgen.thread_id x
+    ```
+
+    If `upper_bound` is set, or if one can be inferred from `known_block_size`-type
+    annotations in context, executions where the thread index would be greater
+    than or equal to that bound cause undefined behavior.
+
+    There is an implicit upper bound of `kMaxDim` (currently uint32_t::max).
+  }];
 }
 
 
 
-def AllocSharedOp : Deepgen_Op<"alloc_shared", [
-    DeclareOpInterfaceMethods<MemoryEffectOpInterface>,
-    MemoryEffects<[Allocate]>
-]> {
-  let summary = "Allocates a memory region on GPU shared memory";
-  let description = [{
-    The `deepgen.alloc_shared` operation allocates a memory region on the GPU's
-    shared memory. The dimensions of the allocated memory are specified by
-    the operands. This operation is typically used inside a GPU launch.
-  }];
 
-  // 输入是可变参数的 index，表示 memref 的维度
-  let arguments = (ins
-    Type:$elem_type,          // 新增的操作数，表示元素类型
-    Variadic<IntegerOrIndexType>:$dynamic_dims
-  );
+// def AllocSharedOp : Deepgen_Op<"alloc_shared", [
+//     DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+// ]> {
+//   let summary = "Allocates a memory region on GPU shared memory";
+//   let description = [{
+//     The `deepgen.alloc_shared` operation allocates a memory region on the GPU's
+//     shared memory. The dimensions of the allocated memory are specified by
+//     the operands. This operation is typically used inside a GPU launch.
+//   }];
 
-  // 返回类型是一个 memref
-  let results = (outs AnyMemRef:$memref_result);
-}
+//   // 输入是可变参数的 index，表示 memref 的维度
+//   let arguments = (ins
+//     "Type":$elem_type,          // 新增的操作数，表示元素类型
+//     Variadic<Index>:$dynamicSizes
+//   );
 
-def AllocLocalOp : Deepgen_Op<"alloc_local",[]> {
-  let summary = "Allocates a memory region on GPU local memory";
-  let description = [{
-    The `deepgen.alloc_local` operation allocates a memory region on the GPU's
-    thread local memory. The dimensions of the allocated memory are specified by
-    the operands. This operation is typically used inside a GPU launch.
-  }];
+//   // 返回类型是一个 memref
+//   let results = (outs AnyMemRef:$memref_result);
+//   let assemblyFormat = [{
+//     `(`$dynamicSizes`)` (`` `[` $symbolOperands^ `]`)? attr-dict `:` type($memref)
+//   }];
+// }
 
-  // 输入是可变参数的 index，表示 memref 的维度
-  let arguments = (ins
-    Type:$elem_type,          // 元素类型
-    Variadic<IntegerOrIndexType>:$dynamic_dims  // size(任意维度)
-  );
 
-  // 返回类型是一个 memref
-  let results = (outs AnyMemRef:$memref_result);
-}
+
+// def AllocLocalOp : Deepgen_Op<"alloc_local",[]> {
+//   let summary = "Allocates a memory region on GPU local memory";
+//   let description = [{
+//     The `deepgen.alloc_local` operation allocates a memory region on the GPU's
+//     thread local memory. The dimensions of the allocated memory are specified by
+//     the operands. This operation is typically used inside a GPU launch.
+//   }];
+
+//   // 输入是可变参数的 index，表示 memref 的维度
+//   let arguments = (ins
+//     Type:$elem_type,          // 元素类型
+//     Variadic<IntegerOrIndexType>:$dynamic_dims  // size(任意维度)
+//   );
+
+//   // 返回类型是一个 memref
+//   let results = (outs AnyMemRef:$memref_result);
+// }
+
+
 
 // 定义一个 setLayout 操作
-def SetLayoutOp : Op<"set_layout",
-    [{
-      // This op modifies the layout of a memref without changing its logical shape.
-      // It returns a new memref with the specified layout.
-    }]> {
-
-  // 输入操作数: 一个 memref
-  let arguments = (ins 
-    AnyMemRef:$input
-  );
-
-  // 输入属性: 一个枚举值，表示布局模式
-  let attributes = ( 
-    LayoutAttr:$layout_mode
-  );
-
-  // 输出结果: 一个新的 memref，具有与输入相同的类型
-  let results = (
-    AnyMemRef
-  );
-
-  // Traits:
-  // 1. SameOperandsAndResultShape: 确保输入和输出的memref形状相同。
-  // 2. SameOperandsAndResultElementType: 确保输入和输出的元素类型相同。
-  let traits = [
+def SetLayoutOp : Deepgen_Op<"set_layout", [
     SameOperandsAndResultShape,
     SameOperandsAndResultElementType,
-    NoSideEffects
+    Pure]> {
+
+  // 输入操作数: 一个 memref
+  let arguments = (ins AnyRankedOrUnrankedMemRef:$inputMemref, LayoutAttr:$layout);
+
+  // 输出结果: 一个新的 memref，具有与输入相同的类型
+  let results = (outs 
+    AnyRankedOrUnrankedMemRef:$memref
+  );
+
+  let assemblyFormat = "$inputMemref type($inputMemref) attr-dict `:` type($memref) `with` $layout";
+
+  let builders = [
+    OpBuilder<(ins "Value":$inputMemref, "::mlir::deepgen::LayoutKind":$layout), [{
+      build($_builder, $_state, inputMemref, layout );
+    }]>
   ];
 
-  // 验证器
-  let verifier = "return verifySetLayoutOp(*this);";
 }
 
+
 def FillOp : Deepgen_Op<"fill",[
-    DeclareOpInterfaceMethods<MemoryEffectOpInterface>
 ]> {
     let summary = "fill value to memref buffer";
     let arguments = (ins
-        AnyType:$fill_value,         // 新增的操作数，表示填充值(0 也包括其中，故不设置 clearop)
-        AnyMemRef:$memref,
-    );
-    let has = [
-        MemoryEffects<[Write<"memref">]>
-    ];
+        AnyTypeOf<[I32,I64,F32,F64]> : $fill_value,         // 新增的操作数，表示填充值(0 也包括其中，故不设置 clearop)
+        Arg<AnyRankedOrUnrankedMemRef, "the memref to fill", [MemWriteAt<0, FullEffect>]>:$target
+    ); 
+    // let assemblyFormat = "$target `,` $fill_value `(` attr-dict `)` `:` type($target)";
+    let assemblyFormat = "$fill_value type($fill_value) `to` $target  attr-dict `:` type($target)";
 }
-
+/****
 // def LoadOp : Deepgen_Op<"load",[
 //     DeclareOpInterfaceMethods<MemoryEffectOpInterface>
 // ]> {
@@ -395,5 +456,7 @@ def BarrierWaitOp : Deepgen_Op<"barrier_wait",[]> {
 
 }
 
-*/
+
+*****/
+
 #endif // Deepgen_OPS
