@@ -17,6 +17,7 @@ include "mlir/Interfaces/InferTypeOpInterface.td" // SameOperandsAndResultType
 include "mlir/Interfaces/SideEffectInterfaces.td" // Pure
 include "mlir/Interfaces/CastInterfaces.td" // CastOpInterface
 include "mlir/Interfaces/CallInterfaces.td" // CallOpInterface
+include "mlir/Interfaces/LoopLikeInterface.td"
 
 //
 // Op Base
@@ -107,7 +108,90 @@ def KernelFuncOp : Deepgen_Op<"kernel_func",[
 }
 
 
-def ReturnOp : Deepgen_Op<"return", [Pure, HasParent<"KernelFuncOp">, /*MemRefsNormalizable, */ReturnLike, Terminator]> {
+def DeviceFuncOp : Deepgen_Op<"device_func",[
+  AffineScope, IsolatedFromAbove, OpAsmOpInterface, FunctionOpInterface, CallableOpInterface
+]> {
+    let summary = "定义 device_function ";
+
+    let arguments = (ins 
+      SymbolNameAttr:$sym_name,
+      TypeAttrOf<FunctionType>:$function_type,
+      DenseI64ArrayAttr : $griddim,
+      DenseI64ArrayAttr : $blockdim,
+      OptionalAttr<StrAttr>:$sym_visibility,
+      OptionalAttr<DictArrayAttr>:$arg_attrs,
+      OptionalAttr<DictArrayAttr>:$res_attrs
+    );
+    let regions = (region AnyRegion:$body);
+
+    let builders = [OpBuilder<(ins
+      "StringRef":$name, "FunctionType":$type,
+      "DenseI64ArrayAttr" : $griddimAttr,
+      "DenseI64ArrayAttr" : $blockdimAttr,
+      CArg<"ArrayRef<NamedAttribute>", "{}">:$attrs,
+      CArg<"ArrayRef<DictionaryAttr>", "{}">:$argAttrs)
+    >];
+    let extraClassDeclaration = [{
+    //===------------------------------------------------------------------===//
+    // CallableOpInterface
+    //===------------------------------------------------------------------===//
+
+    /// Returns the region on the current operation that is callable. This may
+    /// return null in the case of an external callable object, e.g. an external
+    /// function.
+    ::mlir::Region *getCallableRegion() { return isExternal() ? nullptr : &getBody(); }
+
+    /// Returns the results types that the callable region produces when
+    /// executed.
+    ArrayRef<Type> getCallableResults() { return getFunctionType().getResults(); }
+
+    /// Returns the argument attributes for all callable region arguments or
+    /// null if there are none.
+    ::mlir::ArrayAttr getCallableArgAttrs() {
+      return getArgAttrs().value_or(nullptr);
+    }
+
+    /// Returns the result attributes for all callable region results or
+    /// null if there are none.
+    ::mlir::ArrayAttr getCallableResAttrs() {
+      return getResAttrs().value_or(nullptr);
+    }
+
+    //===------------------------------------------------------------------===//
+    // FunctionOpInterface Methods
+    //===------------------------------------------------------------------===//
+
+    /// Returns the argument types of this function.
+    ArrayRef<Type> getArgumentTypes() { return getFunctionType().getInputs(); }
+
+    /// Returns the result types of this function.
+    ArrayRef<Type> getResultTypes() { return getFunctionType().getResults(); }
+
+    //===------------------------------------------------------------------===//
+    // SymbolOpInterface Methods
+    //===------------------------------------------------------------------===//
+
+    bool isDeclaration() { return isExternal(); }
+
+    static LogicalResult verifyInvariants(DeviceFuncOp op) {
+        // 验证 griddim 属性 (如果存在) 必须是长度为 3 的数组
+        if (op.getGriddim().size() != 3){
+          return op.emitOpError("griddim attribute must be an array of length 3");
+        }
+        // 验证 blockdim 属性 (如果存在) 必须是长度为 3 的数组
+        if (op.getBlockdim().size() != 3){
+          return op.emitOpError("blockdim attribute must be an array of length 3");
+        }
+      return success();
+    }
+  }];
+
+    let hasCustomAssemblyFormat = 1;
+}
+
+
+
+def ReturnOp : Deepgen_Op<"return", [Pure, HasParent< "KernelFuncOp, DeviceFuncOp">, /*MemRefsNormalizable, */ReturnLike, Terminator]> {
   let summary = "Function return operation";
   let description = [{
     The `tt.return` operation represents a return operation within a function.
@@ -204,7 +288,7 @@ def ThreadIdOp : GPU_IndexOp<"threadId"> {
 
 
 
-
+/////  通过 memref.alloc 代替,
 // def AllocSharedOp : Deepgen_Op<"alloc_shared", [
 //     DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
 // ]> {
@@ -229,7 +313,7 @@ def ThreadIdOp : GPU_IndexOp<"threadId"> {
 // }
 
 
-
+/////  通过 memref.alloc 代替
 // def AllocLocalOp : Deepgen_Op<"alloc_local",[]> {
 //   let summary = "Allocates a memory region on GPU local memory";
 //   let description = [{
@@ -279,63 +363,31 @@ def FillOp : Deepgen_Op<"fill",[
 ]> {
     let summary = "fill value to memref buffer";
     let arguments = (ins
-        AnyTypeOf<[I32,I64,F32,F64]> : $fill_value,         // 新增的操作数，表示填充值(0 也包括其中，故不设置 clearop)
-        Arg<AnyRankedOrUnrankedMemRef, "the memref to fill", [MemWriteAt<0, FullEffect>]>:$target
+        Arg<AnyRankedOrUnrankedMemRef, "the memref to fill", [MemWriteAt<0, FullEffect>]>:$target,
+        AnyTypeOf<[I8,I16,I32,I64,F16,F32,F64]> : $fill_value         // 新增的操作数，表示填充值(0 也包括其中，故不设置 clearop)
     ); 
     // let assemblyFormat = "$target `,` $fill_value `(` attr-dict `)` `:` type($target)";
-    let assemblyFormat = "$fill_value type($fill_value) `to` $target  attr-dict `:` type($target)";
+    let assemblyFormat = "$target `with` type($fill_value) $fill_value attr-dict `:` type($target)";
 }
-/****
-// def LoadOp : Deepgen_Op<"load",[
-//     DeclareOpInterfaceMethods<MemoryEffectOpInterface>
-// ]> {
-//     let summary = "load src data to dest ";  // 同步或者异步
-//     let arguments = (ins
-//         AnyMemRef:$memref,
-//         Variadic<Index>:$indices
-//     );
-//     let results = (outs AnyType:$result);
-//     let has  = [
-//         MemoryEffects<[Read<"memref">]>
-//     ];
-// }
 
-// def StoreOp : Deepgen_Op<"store",[    
-//     DeclareOpInterfaceMethods<MemoryEffectOpInterface>
-// ]> {
-//     let summary = "store data to dest ";  // 同步或者异步
-//     let arguments = (ins
-//         AnyType:$value,
-//         AnyMemRef:$memref,
-//         Variadic<Index>:$indices
-//     );
-//     let has = [
-//         MemoryEffects<[Write<"memref">]>
-//     ];
-// }
 
-def CopyOp : Deepgen_Op<"copy",[
-    DeclareOpInterfaceMethods<MemoryEffectOpInterface>
+def CopyOp : Deepgen_Op<"copy", [
 ]> {
-    let summary = "copy src data to dest ";  // 同步或者异步
-    let arguments = (ins
-        AnyMemRef:$memref_src,
-        Variadic<Index>:$indices_src
-        AnyMemRef:$memref_dst,
-        Variadic<Index>:$indices_dst,
-        Index:$num_bytes        // 表示要拷贝的字节数
-    );
-    let attributes = (ins
-        DefaultValuedAttr<BoolAttr, "false">:$isAsync  //  同步或者异步
-    );
-    let has  = [
-        MemoryEffects<[Read<"memref_src">, Write<"memref_dst">]>
-    ];
+  let summary = "tile 中的 memcpy";
+  let description = [{
+  参考tilelang中的相关实现。用于在 globalmem 和 shm 或 localmem 之间拷贝数据
+  }];
+
+  let arguments = (ins
+    Arg<AnyMemRef, "src mem",[MemRead]> : $srcMemref,
+    Arg<AnyMemRef, "dest mem",[MemWrite]> : $dstMemref,
+    DefaultValuedAttr<BoolAttr, "false">:$isAsync
+  );
+
+  let assemblyFormat = " $srcMemref `to` $dstMemref attr-dict `:` type($srcMemref) `to` type($dstMemref)";
 }
 
-
-def WgGemmOp : GPU_Op<"wg_gemm", [
-    DeclareOpInterfaceMethods<MemoryEffectOpInterface>
+def WgGemmOp : Deepgen_Op<"wg_gemm", [
 ]> {
   let summary = "Performs a warpgroup-level matrix-matrix multiply-accumulate.";
   let description = [{
@@ -352,23 +404,69 @@ def WgGemmOp : GPU_Op<"wg_gemm", [
     AnyMemRef:$opC,
     AnyMemRef:$opD
   );
-  
-  let attributes = (ins
-    // I64ArrayAttr:$matrix_shape,  // E.g., [16, 16, 16] for 16x16x16 shape
-    I64Attr:$m_dim,
-    I64Attr:$n_dim,
-    I64Attr:$k_dim,
-    StringAttr:$layoutA,         // "row_major" or "col_major"
-    StringAttr:$layoutB          // "row_major" or "col_major"
-  );
 
-  let has = [
-    MemoryEffects<[Read<"opA">, Read<"opB">, Read<"opC">, Write<"opD">]>
-  ];
+  let assemblyFormat = " $opD `=` $opA `*` $opB `+` $opC type($opA) type($opB) type($opC) attr-dict `:` type($opD)";
 }
 
+
+// 定义一个创建 mbarrier 列表的操作
+def CreateListOfMBarrierOp : Deepgen_Op<"create_list_of_mbarrier",
+    []> {
+  let summary = "Create a list of mbarriers with specified thread counts.";
+  let arguments = (ins
+    DenseI64ArrayAttr:$thread_counts // 存储每个 mbarrier 所需的线程数
+  );
+
+  let results = (outs
+    Deepgen_MBarrierListType : $results // 占位符：理想情况下这里应该是 !my_dialect.mbarrier_list
+  );
+
+  let assemblyFormat = " attr-dict `:` type($results)";
+}
+
+
+// 定义一个创建 mbarrier 列表的操作
+def GetMBarrierOp : Deepgen_Op<"get_mbarrier",
+    []> {
+  let summary = "Create a list of mbarriers with specified thread counts.";
+
+  let arguments = (ins
+    Deepgen_MBarrierListType : $mbarrierList,
+     SignlessIntegerOrIndexLike : $index // 存储每个 mbarrier 所需的线程数
+  );
+
+  let results = (outs
+    Deepgen_MBarrierType : $results 
+  );
+
+  let assemblyFormat = "$mbarrierList  $index  attr-dict `:` `(` type($mbarrierList) `,` type($index) `)` type($results)";
+}
+
+
+def MBarrierWaitParityOp : Deepgen_Op<"mbarrier_wait_parity", []> {
+  let summary = "mbarreir_wait_parity op";
+  let arguments = (ins 
+    Deepgen_MBarrierType : $mbarrier,
+    SignlessIntegerOrIndexLike: $parity_check
+  );
+  let assemblyFormat = "attr-dict $mbarrier $parity_check `:` type($mbarrier) `,` type($parity_check)";
+}
+
+def NotifyMBarrierArrivedOp : Deepgen_Op<"notify_mbarrier_arrived", []> {
+  let summary = "mbarreir_wait_parity op";
+  let arguments = (ins 
+    Deepgen_MBarrierType : $mbarrier
+  );
+  let assemblyFormat = "attr-dict $mbarrier `:` type($mbarrier) ";
+}
+
+
+
+/****
+
+// 通过 affine.parallel 代替
 def ParallelForOp : Deepgen_Op<"parallel_for",[]> {
-    let summary = "可以安全拆分到多个axis上并行的并行for loop （类似 gpu.parallel）";
+    let summary = "可以安全拆分到多个axis上并行的并行for loop （类似 affine.parallel）";
     let arguments = (ins
       Variadic<IntegerOrIndexType>:$upperBounds
     )
@@ -387,10 +485,12 @@ def ParallelForOp : Deepgen_Op<"parallel_for",[]> {
     ];
 }
 
+// 语义等价于 affine.for
 def PersistentForOp : Deepgen_Op<"persist_for",[]> {
     let summary = "一组线程处理大量数据时，需要多个wave完成这个任务。单个线程在每个wave中会映射到不同的位置load/store/calculate数据 （即：建立一个for w : wave）";
 }
 
+// 语义等价于 affine.for
 def PipelinedForOp : Deepgen_Op<"pipelined_for",[]> {
     let summary = "串行for loop, 可以进行 softpipeline优化。会带有一些attr指示后续如何优化。本身只是产出一个简单for";
     let arguments = (ins
@@ -416,6 +516,7 @@ def PipelinedForOp : Deepgen_Op<"pipelined_for",[]> {
     ];
 }
 
+// 等价于 affine.if 
 def WgSpecializedOp : Deepgen_Op<"warpgroup_spec",[
   {
       // This op specifies that a task is to be executed by a single
@@ -453,7 +554,6 @@ def BarrierArriveOp : Deepgen_Op<"barrier_arrive",[]> {
 
 def BarrierWaitOp : Deepgen_Op<"barrier_wait",[]> {
     let summary = "等待barrier到达";
-
 }
 
 

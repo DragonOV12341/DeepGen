@@ -7,11 +7,27 @@ include "Dialect/Deepgen/IR/DeepgenDialect.td"
 //
 // Types
 //
-class TritonTypeDef<string name, string _mnemonic>
+class DeepgenTypeDef<string name, string _mnemonic>
     : TypeDef<Deepgen_Dialect, name> {
     // Used by printer/parser
     let mnemonic = _mnemonic;
 }
+
+def Deepgen_MBarrierListType : DeepgenTypeDef<"MBarrierList", "mbarrier_list"> {
+    let summary = "用于表示 mbarrier_list";
+    let description = [{
+        mbarrier array. 每个元素表示 单个mbar所需的线程数
+    }];
+}
+
+def Deepgen_MBarrierType : DeepgenTypeDef<"MBarrier", "mbarrier"> {
+    let summary = "用于表示 mbarrier";
+    let description = [{
+        mbarrier_list 中的单个 mbar
+    }];
+}
+
+
 
 // Floating-point Type
 def TT_Float : AnyTypeOf<[F8E4M3FNUZ, F8E4M3FN, F8E4M3B11FNUZ, F8E5M2, F8E5M2FNUZ, F16, BF16, F32, F64], "floating-point">;
@@ -48,7 +64,7 @@ class TT_PtrOf<list<Type> pointeeTypes> :
                 "ptr", "::mlir::triton::PointerType">;
 
 // Pointer Type in C++ (corresponding to `TT_PtrOf`)
-def TT_PtrType : TritonTypeDef<"Pointer", "ptr"> {
+def TT_PtrType : DeepgenTypeDef<"Pointer", "ptr"> {
     let summary = "Pointer type (`::mlir::triton::PointerType`) in Triton IR type system";
 
     let description = [{

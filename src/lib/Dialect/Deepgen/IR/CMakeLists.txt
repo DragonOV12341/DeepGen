@@ -12,4 +12,5 @@ add_mlir_dialect_library(DeepgenIR
   MLIRArithDialect
   MLIRMathDialect
   MLIRSCFDialect
+  DeepgenIRUtils
 )

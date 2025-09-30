@@ -15,4 +15,5 @@ target_link_libraries(
   MLIRFuncDialect
   MLIRArithDialect
   DeepgenIR
+  DeepgenIRUtils
 )
